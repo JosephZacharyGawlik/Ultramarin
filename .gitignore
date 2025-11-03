@@ -1,1 +1,4 @@
-./data
+/data/
+.venv/
+.DS_Store
+uv.lock
