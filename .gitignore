@@ -2,5 +2,5 @@
 .venv/
 .DS_Store
 uv.lock
- __pycache__/
+__pycache__/
  
