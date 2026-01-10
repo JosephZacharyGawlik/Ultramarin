@@ -66,7 +66,7 @@ def df_to_tensor(df: pl.DataFrame, seq_len: int = 60, id_col: str = "anonymized_
     
     # Convert to tensors
     features = torch.tensor(df.select(feature_cols).to_numpy(), dtype=torch.float32).to(device)
-    ids = torch.tensor(df[id_col].to_numpy(), dtype=torch.int64).to(device)
+    ids = torch.tensor(df[id_col].to_numpy(), dtype=torch.uint64).to(device)
     times = torch.tensor(df[time_int_col].to_numpy()).to(device)
     
     # Unique IDs
@@ -76,8 +76,10 @@ def df_to_tensor(df: pl.DataFrame, seq_len: int = 60, id_col: str = "anonymized_
     
     # Initialize tensor
     X = torch.zeros(seq_len, num_ids, n_features, dtype=torch.float32).to(device)
+
+    id_map = list(enumerate(unique_ids))
     
-    for i, uid in enumerate(unique_ids):
+    for i, uid in id_map:
         mask = ids == uid
         uid_features = features[mask]
         
@@ -87,8 +89,11 @@ def df_to_tensor(df: pl.DataFrame, seq_len: int = 60, id_col: str = "anonymized_
         
         # Assign to tensor
         X[:, i, :] = uid_features  # assumes exactly seq_len timesteps per ID
-        
-    return X
+    
+    # Convert id_map to tensor for return (extract scalar values from tensors)
+    id_map_data = [(i, uid.item()) for i, uid in id_map]
+    id_map_tensor = torch.tensor(id_map_data, dtype=torch.uint64).to(device)
+    return X, id_map_tensor
 
 def preprocess(X, y, device) -> tuple:
     """
@@ -208,8 +213,10 @@ def preprocess(X, y, device) -> tuple:
     y = y.filter(~pl.col("anonymized_id").is_in(dup_ids["anonymized_id"])).filter(pl.col("anonymized_id").is_in(valid_ids["anonymized_id"]))
 
 
-    y = df_to_tensor(y, seq_len=60, id_col="anonymized_id", time_col="time_in_hour").to(device)
-    X = df_to_tensor(X, seq_len=3600-60, id_col="anonymized_id", time_col="time_in_hour").to(device)
+    y, y_id_map = df_to_tensor(y, seq_len=60, id_col="anonymized_id", time_col="time_in_hour")
+    X, X_id_map = df_to_tensor(X, seq_len=3600-60, id_col="anonymized_id", time_col="time_in_hour")
+
+    X, y, X_id_map, y_id_map = X.to(device), y.to(device), X_id_map.to(device), y_id_map.to(device)
 
     # compute z-score stats per ID + feature (across the sequence dimension)
     means = X.mean(dim=0, keepdim=True)    
@@ -219,4 +226,4 @@ def preprocess(X, y, device) -> tuple:
     X = (X - means) / stds
     y = (y - means) / stds
 
-    return X, y, means, stds
+    return X, y, means, stds, X_id_map, y_id_map
