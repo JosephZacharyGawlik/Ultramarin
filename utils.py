@@ -1,5 +1,7 @@
 import torch
 import polars as pl
+import numpy as np
+from data.simulate_walk_the_book import simulate_walk_the_book
 
 PRICE_COLS = [
     'ask_price_1','bid_price_1',
@@ -18,6 +20,13 @@ VOL_COLS = [
     'ask_vol_5','bid_vol_5',
     'volume',
 ]
+
+ASK_PRICE_COLS = ['ask_price_1', 'ask_price_2','ask_price_3', 'ask_price_4','ask_price_5']
+ASK_VOL_COLS = ['ask_vol_1', 'ask_vol_2', 'ask_vol_3', 'ask_vol_4', 'ask_vol_5','bid_vol_5']
+BID_PRICE_COLS = ['bid_price_1', 'bid_price_2', 'bid_price_3', 'bid_price_4', 'bid_price_5']
+BID_VOL_COLS = ['bid_vol_1', 'bid_vol_2', 'bid_vol_3', 'bid_vol_4', 'bid_vol_5'] 
+
+DATASETS = ["ADAUSDT", "BTCUSDT", "DOGEUSDT", "ETHUSDT", "LTCUSDT", "SOLUSDT", "XRPUSDT"]
 
 def backfill_first_nans(df: pl.DataFrame, cols: list[str]):
     for col in cols:
@@ -197,15 +206,29 @@ def preprocess(X, y, device) -> tuple:
     )
 
     # Drop IDs with missing timesteps
-    seq_len = 3600-60  # your expected sequence length
+    seq_len_X = 3600-60  # your expected sequence length
+    seq_len_y = 60
 
     # Count timesteps per ID
-    valid_ids = (
+    valid_ids_X = (
         X
         .group_by("anonymized_id")
         .agg(pl.count("time_in_hour").alias("n_timesteps"))
-        .filter(pl.col("n_timesteps") == seq_len)
+        .filter(pl.col("n_timesteps") == seq_len_X)
         .select("anonymized_id")
+    )
+
+    valid_ids_y = (
+        y
+        .group_by("anonymized_id")
+        .agg(pl.count("time_in_hour").alias("n_timesteps"))
+        .filter(pl.col("n_timesteps") == seq_len_y)
+        .select("anonymized_id")
+    )
+
+    valid_ids = (
+        valid_ids_X
+        .join(valid_ids_y, on="anonymized_id", how="inner")
     )
 
     # Remove duplicate ids and keep only IDs with full sequences -> 674 ids should be left
@@ -227,3 +250,67 @@ def preprocess(X, y, device) -> tuple:
     y = (y - means) / stds
 
     return X, y, means, stds, X_id_map, y_id_map
+
+
+def objective_func(average_execution_price, final_close_price, volume_to_fill, total_volume_executed):
+    """
+    Calculate the execution quality metric combining implementation error and volume penalty.
+
+    This objective function measures the cost of a trading execution strategy by
+    combining the implementation shortfall (deviation from benchmark price) with
+    a penalty for not fully executing the intended volume.
+
+    Parameters
+    ----------
+    average_execution_price : float
+        The average price at which the total volume was executed.
+    final_close_price : float
+        The benchmark price (typically the closing price of the asset).
+    volume_to_fill : float
+        The target volume intended to be executed.
+    total_volume_executed : float
+        The actual volume that was executed.
+
+    Returns
+    -------
+    float
+        The objective value in basis points (bps). Combines:
+        - Implementation error: relative deviation from benchmark price
+        - Volume penalty: penalizes under-execution
+
+    Notes
+    -----
+    - Result is multiplied by 10000 to convert to basis points.
+    - Lower values indicate better execution quality.
+    - Penalty applies when actual execution is less than target volume.
+    """
+    impl_error = np.abs(average_execution_price - final_close_price) / final_close_price
+    penalty = np.minimum(100.0, (volume_to_fill / total_volume_executed))
+    return impl_error * penalty * 10000 # mult by 10000 to get bps
+
+def compute_bps(position_preds: pl.DataFrame, y_train_raw: pl.DataFrame, volume_to_fill: float) -> float:
+    
+    # 1. Join your dataframes so all info for one ID is in one row/group
+    combined = position_preds.join(y_train_raw, on=['anonymized_id', 'time_in_hour'], how='left')
+
+    # 2. Define a wrapper that takes a sub-dataframe (one ID) and returns the result
+    def compute_id_objective(df):
+        vol, avg_p = simulate_walk_the_book(
+            df['position'].to_numpy(),
+            df[ASK_PRICE_COLS].to_numpy(),
+            df[ASK_VOL_COLS].to_numpy(),
+            df[BID_PRICE_COLS].to_numpy(),
+            df[BID_VOL_COLS].to_numpy()
+        )
+        last_close = df['close'].drop_nulls()[-1]
+        return objective_func(avg_p, last_close, volume_to_fill, vol)
+
+    # 3. Use group_by to run this in parallel
+    bpss_df = (
+        combined.group_by("anonymized_id", maintain_order=True)
+        .map_groups(lambda df: pl.DataFrame({
+            "obj_value": compute_id_objective(df)
+        }))
+    )
+
+    return bpss_df["obj_value"].mean()
