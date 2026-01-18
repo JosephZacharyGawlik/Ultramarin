@@ -1,6 +1,20 @@
-/data/
-.venv/
 .DS_Store
-uv.lock
+
+.idea/
+.vscode/
+.pytest_cache/
+.env/
+.env.local/
+.env.development.local/
+.env.test.local/
+.env.production.local/
+.env.development/
+.env.test/
+.env.production/
+.venv/
+
 __pycache__/
- 
+
+# Data files (large, should not be committed)
+data/
+data.zip
