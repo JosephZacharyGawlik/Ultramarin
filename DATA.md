@@ -1,4 +1,4 @@
-scp -P 22122 BTCUSDT.zip root@69.30.85.115:/workspace/
+scp -P [PORT] BTCUSDT.zip root@[POD IP ADDRESS]:/workspace/
 
 apt-get update && apt-get install -y unzip
 
