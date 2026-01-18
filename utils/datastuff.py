@@ -118,7 +118,23 @@ class LOBProcessor:
             y_tens, y_id_map = df_to_tensor(y_clean, seq_len=seq_len_y)
         else:
             from utils.utils import df_to_tensor
-            X_tens, X_id_map = df_to_tensor(X_clean, seq_len=3600-60)
+            
+            # --- THE FIX: Ensure exactly seq_len rows per ID ---
+            seq_len_X = 3600 - 60
+            
+            # Keep only IDs that have AT LEAST seq_len_X rows
+            counts = X_clean.group_by("anonymized_id").agg(pl.len().alias("n"))
+            valid_test_ids = counts.filter(pl.col("n") >= seq_len_X)["anonymized_id"].to_list()
+            
+            X_clean = X_clean.filter(pl.col("anonymized_id").is_in(valid_test_ids))
+            
+            # Slice each group to take the LAST seq_len_X rows
+            X_clean = (
+                X_clean.group_by("anonymized_id", maintain_order=True)
+                .tail(seq_len_X) 
+            )
+            
+            X_tens, X_id_map = df_to_tensor(X_clean, seq_len=seq_len_X)
             y_tens, y_id_map = None, None
 
         X_tens = X_tens.to(self.device)
