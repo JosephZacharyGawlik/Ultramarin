@@ -1,4 +1,12 @@
-/data/
+/data/ADAUSDT/
+/data/BTCUSDT/
+/data/DOGEUSDT/
+/data/ETHUSDT/
+/data/LTCUSDT/
+/data/SOLUSDT/
+/data/XRPUSDT/
+/data/__pycache__/
+/data/.idea/
 .venv/
 .DS_Store
 uv.lock
