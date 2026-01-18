@@ -235,6 +235,12 @@ def preprocess(X, y, device) -> tuple:
     X = X.filter(~pl.col("anonymized_id").is_in(dup_ids["anonymized_id"])).filter(pl.col("anonymized_id").is_in(valid_ids["anonymized_id"]))
     y = y.filter(~pl.col("anonymized_id").is_in(dup_ids["anonymized_id"])).filter(pl.col("anonymized_id").is_in(valid_ids["anonymized_id"]))
 
+    # --- ADDED: CREATE FEATURE MAP ---
+    # These are the columns that df_to_tensor will actually keep
+    exclude_cols = ["anonymized_id", "time_in_hour"]
+    feature_names = [col for col in X.columns if col not in exclude_cols]
+    feature_map = {name: i for i, name in enumerate(feature_names)}
+    # ---------------------------------
 
     y, y_id_map = df_to_tensor(y, seq_len=60, id_col="anonymized_id", time_col="time_in_hour")
     X, X_id_map = df_to_tensor(X, seq_len=3600-60, id_col="anonymized_id", time_col="time_in_hour")
@@ -249,7 +255,7 @@ def preprocess(X, y, device) -> tuple:
     X = (X - means) / stds
     y = (y - means) / stds
 
-    return X, y, means, stds, X_id_map, y_id_map
+    return X, y, means, stds, X_id_map, y_id_map, feature_map
 
 
 def objective_func(average_execution_price, final_close_price, volume_to_fill, total_volume_executed):
