@@ -61,7 +61,6 @@ class LOBProcessor:
         self.means = None
         self.stds = None
         self.feature_map = None
-        self.id_to_idx = None  # Crucial for matching Val IDs to Train Stats
         
         # Columns from your ref
         self.price_cols = [
@@ -145,27 +144,17 @@ class LOBProcessor:
             feature_names = [col for col in X_clean.columns if col not in exclude]
             self.feature_map = {name: i for i, name in enumerate(feature_names)}
 
-        # --- 6. ID-BASED SCALING ---
+        # --- 6. GLOBAL SCALING ---
         if self.means is None:
-            # Training logic: Calculate and store mapping
-            self.means = X_tens.mean(dim=0, keepdim=True)
-            self.stds = X_tens.std(dim=0, keepdim=True)
+            # Training: compute global mean/std across all time and instruments
+            # Shape: (1, 1, num_features) - one value per feature
+            self.means = X_tens.mean(dim=(0, 1), keepdim=True)
+            self.stds = X_tens.std(dim=(0, 1), keepdim=True)
             self.stds[self.stds == 0] = 1.0
-            
-            # id_to_idx maps the actual ID value to its column position in the mean tensor
-            self.id_to_idx = {int(uid): i for i, uid in enumerate(X_id_map[:, 1].tolist())}
-            cur_means, cur_stds = self.means, self.stds
-        else:
-            # Validation logic: Select correct means for current IDs
-            current_ids = X_id_map[:, 1].tolist()
-            idx_selector = [self.id_to_idx.get(int(uid), 0) for uid in current_ids]
-            idx_tensor = torch.tensor(idx_selector, device=self.device)
-            
-            cur_means = self.means[:, idx_tensor, :]
-            cur_stds = self.stds[:, idx_tensor, :]
 
-        X_norm = (X_tens - cur_means) / cur_stds
-        y_norm = (y_tens - cur_means) / cur_stds if y_tens is not None else None
+        # Apply same normalization to both train and val (broadcasts automatically)
+        X_norm = (X_tens - self.means) / self.stds
+        y_norm = (y_tens - self.means) / self.stds if y_tens is not None else None
 
         return {
             "X": X_norm, "y": y_norm, 
