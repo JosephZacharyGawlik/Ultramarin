@@ -129,7 +129,7 @@ def train_val(cfg: TrainCfg = TrainCfg()):
         "mid_mean": actual_mid_mean, # Use raw dollar values
         "mid_std": actual_mid_std     # Use raw dollar values
     }
-    return model, scalers, val_loader, y_va_map
+    return model, scalers, val_loader, y_va_map, processor
 
 def forecast_loss(pred, target, smooth_lambda=0.02):
     mse = (pred - target) ** 2

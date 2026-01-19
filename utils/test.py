@@ -3,17 +3,18 @@ import pandas as pd
 import polars as pl
 from utils.datastuff import LOBProcessor
 
-def generate_test_predictions(model, cfg, num_ids=None):
+def generate_test_predictions(model, cfg, processor, num_ids=None):
     """
     Args:
         model: Trained model
-        processor: The SAME LOBProcessor instance used for training (crucial for scaling!)
+        processor: The SAME LOBProcessor instance used for training (crucial for normalization!)
         cfg: Configuration object
         num_ids: (Optional) Int. If set, only predicts for this many anonymized_ids.
     """
     model.eval()
-
-    processor = LOBProcessor(cfg)
+    
+    # Use the processor passed in (with fitted means/stds from training)
+    # Do NOT create a new one: processor = LOBProcessor(cfg)
 
     # 1. Load Test Data (Lazy Scan is faster for sampling)
     print("Loading test data...")
