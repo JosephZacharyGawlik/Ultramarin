@@ -1,7 +1,37 @@
 import torch
 import pandas as pd
 import polars as pl
-from utils.datastuff import LOBProcessor
+from utils.datastuff import InferenceTensorDataset, LOBProcessor
+from torch.utils.data import DataLoader
+
+def generate_test_loader(cfg):
+# 1. Load Data
+    X_test_raw = pd.read_parquet(cfg.x_test_path).sort_values(["anonymized_id", "time_in_hour"])
+
+    # --- REPLACING SECTION 3: Preprocess with LOBProcessor ---
+    processor = LOBProcessor(cfg, device=cfg.device)
+    
+    # 1. Process Test (calculates means/stds)
+    test_out = processor.process(pl.from_pandas(X_test_raw), y_df=None)
+    X_te_tens = test_out["X"]
+
+    # 3. Enforce FEATURE_COLS order and extract scalers
+    feat_indices = [processor.feature_map[col] for col in cfg.feature_cols]
+    
+    X_te_tens = X_te_tens[:, :, feat_indices]
+    te_means  = test_out["means"][:, :, feat_indices]
+    te_stds   = test_out["stds"][:, :, feat_indices]
+    test_map = test_out["X_id_map"]
+    
+    test_ds = InferenceTensorDataset(X_te_tens, input_window=cfg.input_window)
+
+    test_loader = DataLoader(test_ds, batch_size=cfg.batch_size, shuffle=True)
+
+    scalers = {
+        "feat_means": te_means, 
+        "feat_stds": te_stds, 
+    }
+    return test_loader, scalers, test_map, processor
 
 def generate_test_predictions(model, cfg, processor, num_ids=None):
     """

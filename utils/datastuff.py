@@ -35,6 +35,7 @@ class TrainCfg:
     # Features & Data
     x_path: Path = None
     y_path: Path = None
+    x_test_path: Path = None
     feature_cols: list = None
 
 class TensorTimeDataset(Dataset):
@@ -53,6 +54,18 @@ class TensorTimeDataset(Dataset):
         y_full_sample = self.Y[:, idx, :]
         target = self.Y_mid[idx, :]
         return x_sample, y_full_sample, target
+
+class InferenceTensorDataset(TensorTimeDataset):
+    def __init__(self, X, input_window: int):
+        self.X = X
+        self.input_window = input_window
+
+    def __len__(self):
+        return self.X.shape[1]
+
+    def __getitem__(self, idx):
+        x_sample = self.X[-self.input_window:, idx, :]
+        return x_sample
     
 class LOBProcessor:
     def __init__(self, config, device=None):
@@ -77,6 +90,21 @@ class LOBProcessor:
     def _apply_cleaning(self, df):
         # 1. Sort
         df = df.sort(["anonymized_id", "time_in_hour"])
+
+        # Arbitrarily pick the row that is later
+        df = df.unique(subset=["anonymized_id", "time_in_hour"], keep="last")
+
+        # ensure all ids are kept
+        unique_times = df.select(pl.col("time_in_hour").unique().sort())
+        unique_ids = df.select(pl.col("anonymized_id").unique())
+
+        full_grid = unique_ids.join(unique_times, how="cross")
+
+        df = full_grid.join(df, on=["anonymized_id", "time_in_hour"], how="left")
+    
+        # 5. Sort to ensure time-continuity for filling
+        df = df.sort(["anonymized_id", "time_in_hour"])
+
         # 2. Backfill leading NaNs (Using your external helper)
         from utils.utils import backfill_first_nans # Ensure this import works
         df = df.group_by("anonymized_id").map_groups(lambda g: backfill_first_nans(g, self.price_cols))
@@ -93,23 +121,8 @@ class LOBProcessor:
         
         if y_df is not None:
             y_clean = self._apply_cleaning(y_df)
-            
-            # --- 5. STRICT FILTERING (Duplicates & Seq Length) ---
-            dup_ids = (
-                X_clean.group_by(["anonymized_id", "time_in_hour"])
-                .agg(pl.len().alias("count"))
-                .filter(pl.col("count") > 1)
-                .select("anonymized_id").unique()
-            )["anonymized_id"].to_list()
 
             seq_len_X, seq_len_y = 3600 - 60, 60
-            valid_ids_X = X_clean.group_by("anonymized_id").agg(pl.len().alias("n")).filter(pl.col("n") == seq_len_X)
-            valid_ids_y = y_clean.group_by("anonymized_id").agg(pl.len().alias("n")).filter(pl.col("n") == seq_len_y)
-            
-            valid_ids = valid_ids_X.join(valid_ids_y, on="anonymized_id", how="inner")["anonymized_id"].to_list()
-
-            X_clean = X_clean.filter(~pl.col("anonymized_id").is_in(dup_ids)).filter(pl.col("anonymized_id").is_in(valid_ids))
-            y_clean = y_clean.filter(~pl.col("anonymized_id").is_in(dup_ids)).filter(pl.col("anonymized_id").is_in(valid_ids))
             
             # Convert to Tensors (Using your external helper)
             from utils.utils import df_to_tensor
@@ -120,18 +133,6 @@ class LOBProcessor:
             
             # --- THE FIX: Ensure exactly seq_len rows per ID ---
             seq_len_X = 3600 - 60
-            
-            # Keep only IDs that have AT LEAST seq_len_X rows
-            counts = X_clean.group_by("anonymized_id").agg(pl.len().alias("n"))
-            valid_test_ids = counts.filter(pl.col("n") >= seq_len_X)["anonymized_id"].to_list()
-            
-            X_clean = X_clean.filter(pl.col("anonymized_id").is_in(valid_test_ids))
-            
-            # Slice each group to take the LAST seq_len_X rows
-            X_clean = (
-                X_clean.group_by("anonymized_id", maintain_order=True)
-                .tail(seq_len_X) 
-            )
             
             X_tens, X_id_map = df_to_tensor(X_clean, seq_len=seq_len_X)
             y_tens, y_id_map = None, None
