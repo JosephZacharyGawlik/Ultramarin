@@ -105,12 +105,16 @@ class LOBProcessor:
         # 5. Sort to ensure time-continuity for filling
         df = df.sort(["anonymized_id", "time_in_hour"])
 
+        price_cols_to_fill = self.price_cols.copy()
+        if "mid_price" in df.columns:
+            price_cols_to_fill.append("mid_price")
+
         # 2. Backfill leading NaNs (Using your external helper)
         from utils.utils import backfill_first_nans # Ensure this import works
-        df = df.group_by("anonymized_id").map_groups(lambda g: backfill_first_nans(g, self.price_cols))
+        df = df.group_by("anonymized_id").map_groups(lambda g: backfill_first_nans(g, price_cols_to_fill))
         # 3. Forward fill remaining prices
         df = df.group_by("anonymized_id").map_groups(lambda g: g.with_columns(
-            pl.col(self.price_cols).fill_null(strategy="forward")
+            pl.col(price_cols_to_fill).fill_null(strategy="forward")
         ))
         # 4. Volume fill 0
         df = df.with_columns(pl.col(self.vol_cols).fill_null(0))
@@ -145,18 +149,39 @@ class LOBProcessor:
             feature_names = [col for col in X_clean.columns if col not in exclude]
             self.feature_map = {name: i for i, name in enumerate(feature_names)}
 
-        # --- 6. GLOBAL SCALING ---
+        # --- 6. Per id SCALING ---
         if self.means is None:
             # Training: compute global mean/std across all time and instruments
             # Shape: (1, 1, num_features) - one value per feature
-            self.means = X_tens.mean(dim=(0, 1), keepdim=True)
-            self.stds = X_tens.std(dim=(0, 1), keepdim=True)
+            self.means = X_tens.mean(dim=0, keepdim=True)
+            self.stds = X_tens.std(dim=0, keepdim=True)
             self.stds[self.stds == 0] = 1.0
 
         # Apply same normalization to both train and val (broadcasts automatically)
         X_norm = (X_tens - self.means) / self.stds
         y_norm = (y_tens - self.means) / self.stds if y_tens is not None else None
 
+        if y_tens is not None:
+            feature_cols = [col for col in y_clean.columns if col not in [id_col, time_col, time_int_col]]
+
+            if "mid_price" in feature_cols:
+                mid_idx = feature_cols.index("mid_price")
+
+                # Extract midprice tensor: shape [seq_len, num_ids]
+                mid_tensor = y_tens[:, :, mid_idx]
+
+                # Compute per-ID mean and std over time (dim=0)
+                mid_mean = mid_tensor.mean(dim=0, keepdim=True)    # shape [1, num_ids]
+                mid_stds = mid_tensor.std(dim=0, keepdim=True)     # shape [1, num_ids]
+                mid_stds[mid_stds == 0] = 1.0                      # avoid division by zero
+
+            return {
+                "X": X_norm, "y": y_norm, 
+                "means": self.means, "stds": self.stds,
+                "X_id_map": X_id_map, "y_id_map": y_id_map,
+                "feature_map": self.feature_map,
+                "mid_mean": mid_mean, "mid_stds": mid_stds
+            }
         return {
             "X": X_norm, "y": y_norm, 
             "means": self.means, "stds": self.stds,
