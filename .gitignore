@@ -12,4 +12,6 @@
 .DS_Store
 uv.lock
 __pycache__/
- 
+CLAUDE.md
+.claude/
+.pytest_cache/

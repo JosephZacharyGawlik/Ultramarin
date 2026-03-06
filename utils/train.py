@@ -62,9 +62,6 @@ def train_val(cfg: TrainCfg = TrainCfg()):
     X_raw = pd.read_parquet(cfg.x_path).sort_values(["anonymized_id", "time_in_hour"])
     Y_raw = pd.read_parquet(cfg.y_path).sort_values(["anonymized_id", "time_in_hour"])
 
-    # TODO: you should add mid price here and preprocess it in the same manner. 
-    # you need the y data's raw mid price and then you need its raw mean and std to denormalize before calculating r2 and mse.
-    
     # 2. Split
     x_tr_pd, x_va_pd, y_tr_pd, y_va_pd = chrono_split(X_raw, Y_raw, val_ratio=cfg.val_ratio)
 
@@ -99,14 +96,15 @@ def train_val(cfg: TrainCfg = TrainCfg()):
     a_idx, b_idx = new_f_map["ask_price_1"], new_f_map["bid_price_1"]
     # -------------------------------------------------------
 
-    # --- FIX THIS SECTION IN train_val ---
+    # Extract normalized mid_price for training target
+    mid_col_idx = new_f_map["mid_price"]
+    Y_tr_tens = Y_tr_tens[:, :, feat_indices]
+    Y_va_tens = Y_va_tens[:, :, feat_indices]
 
-    # Use Y_tr_tens (60 steps) instead of X_tr_tens (3540 steps)
-    # Note: Ensure a_idx and b_idx are correct for the Y tensor
-    
+    mid_tr = Y_tr_tens[:, :, mid_col_idx]  # [60, num_ids]
+    mid_va = Y_va_tens[:, :, mid_col_idx]  # [60, num_ids]
 
-    # Now mid_tr has shape [60, Num_IDs]
-    # When you pass it to the Dataset, .T makes it [Num_IDs, 60]
+    # mid_tr has shape [60, Num_IDs] -> .T makes [Num_IDs, 60]
     train_ds = TensorTimeDataset(X_tr_tens, Y_tr_tens, mid_tr.T, input_window=cfg.input_window)
     val_ds   = TensorTimeDataset(X_va_tens, Y_va_tens, mid_va.T, input_window=cfg.input_window)
 
@@ -127,10 +125,12 @@ def train_val(cfg: TrainCfg = TrainCfg()):
         print(f"Epoch {epoch+1:02d} | Train: {tr_l:.6f} | Val: {va_l:.6f}")
 
     scalers = {
-        "feat_means": tr_means, 
-        "feat_stds": tr_stds, 
-        "mid_mean": actual_mid_mean, # Use raw dollar values
-        "mid_std": actual_mid_std     # Use raw dollar values
+        "feat_means": tr_means,
+        "feat_stds": tr_stds,
+        "mid_mean": train_out["mid_mean"],       # per-instrument [1, num_train_ids], raw space
+        "mid_stds": train_out["mid_stds"],       # per-instrument [1, num_train_ids], raw space
+        "val_mid_mean": val_out["mid_mean"],     # per-instrument [1, num_val_ids], raw space
+        "val_mid_stds": val_out["mid_stds"],     # per-instrument [1, num_val_ids], raw space
     }
     return model, scalers, val_loader, y_va_map, processor
 

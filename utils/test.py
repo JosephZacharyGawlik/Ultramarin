@@ -4,14 +4,11 @@ import polars as pl
 from utils.datastuff import InferenceTensorDataset, LOBProcessor
 from torch.utils.data import DataLoader
 
-def generate_test_loader(cfg):
-# 1. Load Data
+def generate_test_loader(cfg, processor):
+    # 1. Load Data
     X_test_raw = pd.read_parquet(cfg.x_test_path).sort_values(["anonymized_id", "time_in_hour"])
 
-    # --- REPLACING SECTION 3: Preprocess with LOBProcessor ---
-    processor = LOBProcessor(cfg, device=cfg.device)
-    
-    # 1. Process Test (calculates means/stds)
+    # Reuse the fitted processor (with training means/stds)
     test_out = processor.process(pl.from_pandas(X_test_raw), y_df=None)
     X_te_tens = test_out["X"]
 
@@ -25,7 +22,7 @@ def generate_test_loader(cfg):
     
     test_ds = InferenceTensorDataset(X_te_tens, input_window=cfg.input_window)
 
-    test_loader = DataLoader(test_ds, batch_size=cfg.batch_size, shuffle=True)
+    test_loader = DataLoader(test_ds, batch_size=cfg.batch_size, shuffle=False)
 
     scalers = {
         "feat_means": te_means, 

@@ -6,17 +6,6 @@ import polars as pl
 
 @dataclass
 class TrainCfg:
-    epochs: int = 15
-    batch_size: int = 16
-    lr: float = 1e-3
-    weight_decay: float = 1e-5
-    smooth_lambda: float = 0.02
-    val_ratio: float = 0.2
-    input_window: int = 300   # Look-back period
-    target_window: int = 60   # Prediction horizon
-
-@dataclass
-class TrainCfg:
     # Hyperparameters
     epochs: int = 20
     batch_size: int = 32
@@ -149,10 +138,10 @@ class LOBProcessor:
             feature_names = [col for col in X_clean.columns if col not in exclude]
             self.feature_map = {name: i for i, name in enumerate(feature_names)}
 
-        # --- 6. Per id SCALING ---
+        # --- 6. Per-instrument SCALING ---
         if self.means is None:
-            # Training: compute global mean/std across all time and instruments
-            # Shape: (1, 1, num_features) - one value per feature
+            # Training: compute mean/std per instrument across time
+            # Shape: [1, num_ids, num_features]
             self.means = X_tens.mean(dim=0, keepdim=True)
             self.stds = X_tens.std(dim=0, keepdim=True)
             self.stds[self.stds == 0] = 1.0
@@ -161,30 +150,22 @@ class LOBProcessor:
         X_norm = (X_tens - self.means) / self.stds
         y_norm = (y_tens - self.means) / self.stds if y_tens is not None else None
 
-        if y_tens is not None:
-            feature_cols = [col for col in y_clean.columns if col not in [id_col, time_col, time_int_col]]
-
-            if "mid_price" in feature_cols:
-                mid_idx = feature_cols.index("mid_price")
-
-                # Extract midprice tensor: shape [seq_len, num_ids]
-                mid_tensor = y_tens[:, :, mid_idx]
-
-                # Compute per-ID mean and std over time (dim=0)
-                mid_mean = mid_tensor.mean(dim=0, keepdim=True)    # shape [1, num_ids]
-                mid_stds = mid_tensor.std(dim=0, keepdim=True)     # shape [1, num_ids]
-                mid_stds[mid_stds == 0] = 1.0                      # avoid division by zero
-
-            return {
-                "X": X_norm, "y": y_norm, 
-                "means": self.means, "stds": self.stds,
-                "X_id_map": X_id_map, "y_id_map": y_id_map,
-                "feature_map": self.feature_map,
-                "mid_mean": mid_mean, "mid_stds": mid_stds
-            }
-        return {
-            "X": X_norm, "y": y_norm, 
+        result = {
+            "X": X_norm, "y": y_norm,
             "means": self.means, "stds": self.stds,
             "X_id_map": X_id_map, "y_id_map": y_id_map,
             "feature_map": self.feature_map
         }
+
+        if y_tens is not None and "mid_price" in self.feature_map:
+            mid_idx = self.feature_map["mid_price"]
+
+            # Extract raw midprice tensor: shape [seq_len, num_ids]
+            mid_tensor = y_tens[:, :, mid_idx]
+
+            # Compute per-instrument mean and std over time (dim=0)
+            result["mid_mean"] = mid_tensor.mean(dim=0, keepdim=True)   # [1, num_ids]
+            result["mid_stds"] = mid_tensor.std(dim=0, keepdim=True)    # [1, num_ids]
+            result["mid_stds"][result["mid_stds"] == 0] = 1.0
+
+        return result
