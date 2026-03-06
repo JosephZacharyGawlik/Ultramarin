@@ -8,6 +8,9 @@ def generate_test_loader(cfg, processor):
     # 1. Load Data
     X_test_raw = pd.read_parquet(cfg.x_test_path).sort_values(["anonymized_id", "time_in_hour"])
 
+    # Add mid_price so test data has the same features as training data
+    X_test_raw = X_test_raw.assign(mid_price=(X_test_raw["ask_price_1"] + X_test_raw["bid_price_1"]) / 2.0)
+
     # Reuse the fitted processor (with training means/stds)
     test_out = processor.process(pl.from_pandas(X_test_raw), y_df=None)
     X_test_tensor = test_out["X"]
@@ -49,6 +52,11 @@ def generate_test_predictions(model, cfg, processor, num_ids=None):
         x_test_polars = x_test_lazy.filter(pl.col("anonymized_id").is_in(unique_ids["anonymized_id"])).collect()
     else:
         x_test_polars = x_test_lazy.collect()
+
+    # Add mid_price so test data has the same features as training data
+    x_test_polars = x_test_polars.with_columns(
+        ((pl.col("ask_price_1") + pl.col("bid_price_1")) / 2.0).alias("mid_price")
+    )
 
     # 2. Process with existing LOBProcessor
     print("Preprocessing test data...")

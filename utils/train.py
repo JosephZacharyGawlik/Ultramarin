@@ -58,12 +58,12 @@ def train_val(cfg: TrainCfg = TrainCfg()):
     # 2. Split
     x_train_df, x_val_df, y_train_df, y_val_df = chrono_split(X_raw, Y_raw, val_ratio=cfg.val_ratio)
 
-    # Compute raw mid_price and add as a column before normalization
-    raw_mid_price_train = (y_train_df["ask_price_1"] + y_train_df["bid_price_1"]) / 2.0
-    raw_mid_price_val   = (y_val_df["ask_price_1"]   + y_val_df["bid_price_1"])   / 2.0
-
-    y_train_df = y_train_df.assign(mid_price=raw_mid_price_train)
-    y_val_df   = y_val_df.assign(mid_price=raw_mid_price_val)
+    # Compute raw mid_price and add to ALL DataFrames before normalization.
+    # X and Y must have the same features so normalization broadcasts correctly.
+    x_train_df = x_train_df.assign(mid_price=(x_train_df["ask_price_1"] + x_train_df["bid_price_1"]) / 2.0)
+    x_val_df   = x_val_df.assign(mid_price=(x_val_df["ask_price_1"]     + x_val_df["bid_price_1"])   / 2.0)
+    y_train_df = y_train_df.assign(mid_price=(y_train_df["ask_price_1"] + y_train_df["bid_price_1"]) / 2.0)
+    y_val_df   = y_val_df.assign(mid_price=(y_val_df["ask_price_1"]     + y_val_df["bid_price_1"])   / 2.0)
 
     # 3. Preprocess with LOBProcessor
     processor = LOBProcessor(cfg, device=cfg.device)
