@@ -26,7 +26,7 @@ VOL_COLS = [
 ]
 
 ASK_PRICE_COLS = ['ask_price_1', 'ask_price_2','ask_price_3', 'ask_price_4','ask_price_5']
-ASK_VOL_COLS = ['ask_vol_1', 'ask_vol_2', 'ask_vol_3', 'ask_vol_4', 'ask_vol_5','bid_vol_5']
+ASK_VOL_COLS = ['ask_vol_1', 'ask_vol_2', 'ask_vol_3', 'ask_vol_4', 'ask_vol_5']
 BID_PRICE_COLS = ['bid_price_1', 'bid_price_2', 'bid_price_3', 'bid_price_4', 'bid_price_5']
 BID_VOL_COLS = ['bid_vol_1', 'bid_vol_2', 'bid_vol_3', 'bid_vol_4', 'bid_vol_5'] 
 

@@ -59,8 +59,6 @@ class LOBProcessor:
     def __init__(self, config, device=None):
         self.config = config
         self.device = device or torch.device("cpu")
-        self.means = None
-        self.stds = None
         self.feature_map = None
 
         self.price_cols = [
@@ -129,33 +127,20 @@ class LOBProcessor:
             feature_names = [col for col in X_clean.columns if col not in exclude]
             self.feature_map = {name: i for i, name in enumerate(feature_names)}
 
-        # Per-instrument scaling
-        if self.means is None:
-            # Compute mean/std per instrument across time
-            # Shape: [1, num_ids, num_features]
-            self.means = X_tensor.mean(dim=0, keepdim=True)
-            self.stds = X_tensor.std(dim=0, keepdim=True)
-            self.stds[self.stds == 0] = 1.0
+        # Fresh per-instrument stats for this call
+        # Shape: [1, N_current, F]
+        means = X_tensor.mean(dim=0, keepdim=True)
+        stds = X_tensor.std(dim=0, keepdim=True)
+        stds[stds == 0] = 1.0
 
-        X_normalized = (X_tensor - self.means) / self.stds
-        y_normalized = (y_tensor - self.means) / self.stds if y_tensor is not None else None
+        X_normalized = (X_tensor - means) / stds
+        y_normalized = (y_tensor - means) / stds if y_tensor is not None else None
 
         result = {
             "X": X_normalized, "y": y_normalized,
-            "means": self.means, "stds": self.stds,
+            "means": means, "stds": stds,
             "X_id_map": X_id_map, "y_id_map": y_id_map,
             "feature_map": self.feature_map
         }
-
-        if y_tensor is not None and "mid_price" in self.feature_map:
-            mid_price_idx = self.feature_map["mid_price"]
-
-            # Extract raw midprice tensor: shape [seq_len, num_ids]
-            mid_price_raw = y_tensor[:, :, mid_price_idx]
-
-            # Compute per-instrument mean and std over time (dim=0)
-            result["mid_mean"] = mid_price_raw.mean(dim=0, keepdim=True)   # [1, num_ids]
-            result["mid_stds"] = mid_price_raw.std(dim=0, keepdim=True)    # [1, num_ids]
-            result["mid_stds"][result["mid_stds"] == 0] = 1.0
 
         return result

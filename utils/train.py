@@ -72,7 +72,7 @@ def train_val(cfg: TrainCfg = TrainCfg()):
     train_out = processor.process(pl.from_pandas(x_train_df), pl.from_pandas(y_train_df))
     X_train_tensor, Y_train_tensor = train_out["X"], train_out["y"]
 
-    # Process Val (reuses training means/stds)
+    # Process Val (computes fresh per-instrument stats)
     val_out = processor.process(pl.from_pandas(x_val_df), pl.from_pandas(y_val_df))
     X_val_tensor, Y_val_tensor, val_id_map = val_out["X"], val_out["y"], val_out["y_id_map"]
 
@@ -117,13 +117,14 @@ def train_val(cfg: TrainCfg = TrainCfg()):
         val_loss   = eval_epoch(model, val_loader, cfg)
         print(f"Epoch {epoch+1:02d} | Train: {train_loss:.6f} | Val: {val_loss:.6f}")
 
+    val_means = val_out["means"][:, :, feature_indices]
+    val_stds  = val_out["stds"][:, :, feature_indices]
+
     scalers = {
-        "feat_means": train_means,
-        "feat_stds": train_stds,
-        "mid_mean": train_out["mid_mean"],       # per-instrument [1, num_train_ids], raw space
-        "mid_stds": train_out["mid_stds"],       # per-instrument [1, num_train_ids], raw space
-        "val_mid_mean": val_out["mid_mean"],     # per-instrument [1, num_val_ids], raw space
-        "val_mid_stds": val_out["mid_stds"],     # per-instrument [1, num_val_ids], raw space
+        "feat_means": train_means,         # [1, N_train, F_reordered]
+        "feat_stds": train_stds,           # [1, N_train, F_reordered]
+        "val_feat_means": val_means,       # [1, N_val, F_reordered]
+        "val_feat_stds": val_stds,         # [1, N_val, F_reordered]
     }
     return model, scalers, val_loader, val_id_map, processor
 

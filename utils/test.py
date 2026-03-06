@@ -11,7 +11,7 @@ def generate_test_loader(cfg, processor):
     # Add mid_price so test data has the same features as training data
     X_test_raw = X_test_raw.assign(mid_price=(X_test_raw["ask_price_1"] + X_test_raw["bid_price_1"]) / 2.0)
 
-    # Reuse the fitted processor (with training means/stds)
+    # Reuse the fitted processor (computes fresh per-instrument stats for test data)
     test_out = processor.process(pl.from_pandas(X_test_raw), y_df=None)
     X_test_tensor = test_out["X"]
 
@@ -44,7 +44,7 @@ def generate_test_predictions(model, cfg, processor, num_ids=None):
 
     # 1. Load Test Data (Lazy Scan is faster for sampling)
     print("Loading test data...")
-    x_test_lazy = pl.scan_parquet(cfg.x_path)
+    x_test_lazy = pl.scan_parquet(cfg.x_test_path)
 
     if num_ids is not None:
         print(f"Sampling first {num_ids} IDs for inference...")
