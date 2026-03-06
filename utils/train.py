@@ -61,15 +61,19 @@ def train_val(cfg: TrainCfg = TrainCfg()):
     # 1. Load Data
     X_raw = pd.read_parquet(cfg.x_path).sort_values(["anonymized_id", "time_in_hour"])
     Y_raw = pd.read_parquet(cfg.y_path).sort_values(["anonymized_id", "time_in_hour"])
+
+    # TODO: you should add mid price here and preprocess it in the same manner. 
+    # you need the y data's raw mid price and then you need its raw mean and std to denormalize before calculating r2 and mse.
     
     # 2. Split
     x_tr_pd, x_va_pd, y_tr_pd, y_va_pd = chrono_split(X_raw, Y_raw, val_ratio=cfg.val_ratio)
 
     # Insert before section 3 in train_val
-    raw_mid_price = (y_tr_pd["ask_price_1"] + y_tr_pd["bid_price_1"]) / 2.0
-    actual_mid_mean = raw_mid_price.mean()
-    actual_mid_std = raw_mid_price.std()
+    raw_mid_price_tr = (y_tr_pd["ask_price_1"] + y_tr_pd["bid_price_1"]) / 2.0
+    raw_mid_price_va = (y_va_pd["ask_price_1"] + y_va_pd["bid_price_1"]) / 2.0
 
+    y_tr_pd = y_tr_pd.assign(mid_price=raw_mid_price_tr)
+    y_va_pd = y_va_pd.assign(mid_price=raw_mid_price_va)
 
     # --- REPLACING SECTION 3: Preprocess with LOBProcessor ---
     processor = LOBProcessor(cfg, device=cfg.device)
@@ -99,8 +103,7 @@ def train_val(cfg: TrainCfg = TrainCfg()):
 
     # Use Y_tr_tens (60 steps) instead of X_tr_tens (3540 steps)
     # Note: Ensure a_idx and b_idx are correct for the Y tensor
-    mid_tr = (Y_tr_tens[:, :, a_idx] + Y_tr_tens[:, :, b_idx]) / 2.0
-    mid_va = (Y_va_tens[:, :, a_idx] + Y_va_tens[:, :, b_idx]) / 2.0
+    
 
     # Now mid_tr has shape [60, Num_IDs]
     # When you pass it to the Dataset, .T makes it [Num_IDs, 60]
