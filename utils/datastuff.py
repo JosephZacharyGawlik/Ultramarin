@@ -107,6 +107,10 @@ class LOBProcessor:
         ))
         # Volume fill 0
         df = df.with_columns(pl.col(self.vol_cols).fill_null(0))
+        # OFI columns fill 0 (no order flow change is a safe default)
+        ofi_cols = [c for c in df.columns if c.startswith("ofi_")]
+        if ofi_cols:
+            df = df.with_columns(pl.col(ofi_cols).fill_null(0))
         return df
 
     def process(self, X_df, y_df=None):
