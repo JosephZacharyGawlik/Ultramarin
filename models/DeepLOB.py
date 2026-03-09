@@ -13,9 +13,9 @@ import torch.nn as nn
 
 
 class DeepLOBEncoder(nn.Module):
-    def __init__(self, in_ch: int = 1):
+    def __init__(self, in_ch: int = 1, dropout: float = 0.0):
         super().__init__()
-        
+
         # Conv Block 1: Reduce features 20 → 10, temporal convolutions
         # Input: [B, 1, T, 20]
         self.conv1 = nn.Sequential(
@@ -23,46 +23,55 @@ class DeepLOBEncoder(nn.Module):
             nn.Conv2d(in_ch, 32, kernel_size=(1, 2), stride=(1, 2)),
             nn.LeakyReLU(0.01),
             nn.BatchNorm2d(32),
+            nn.Dropout2d(dropout),
             # Temporal conv: captures 4-second patterns
             nn.Conv2d(32, 32, kernel_size=(4, 1), padding=(2, 0)),
             nn.LeakyReLU(0.01),
             nn.BatchNorm2d(32),
+            nn.Dropout2d(dropout),
             # Another temporal conv
             nn.Conv2d(32, 32, kernel_size=(4, 1), padding=(1, 0)),
             nn.LeakyReLU(0.01),
             nn.BatchNorm2d(32),
+            nn.Dropout2d(dropout),
         )
-        
+
         # Conv Block 2: Reduce features 10 → 5, more temporal convolutions
         self.conv2 = nn.Sequential(
             # Feature reduction: 10 → 5
             nn.Conv2d(32, 32, kernel_size=(1, 2), stride=(1, 2)),
             nn.Tanh(),
             nn.BatchNorm2d(32),
+            nn.Dropout2d(dropout),
             # Temporal conv
             nn.Conv2d(32, 32, kernel_size=(4, 1), padding=(2, 0)),
             nn.Tanh(),
             nn.BatchNorm2d(32),
+            nn.Dropout2d(dropout),
             # Another temporal conv
             nn.Conv2d(32, 32, kernel_size=(4, 1), padding=(1, 0)),
             nn.Tanh(),
             nn.BatchNorm2d(32),
+            nn.Dropout2d(dropout),
         )
-        
+
         # Conv Block 3: Collapse remaining features 5 → 1, final temporal convolutions
         self.conv3 = nn.Sequential(
             # Feature collapse: 5 → 1
             nn.Conv2d(32, 32, kernel_size=(1, 5)),
             nn.LeakyReLU(0.01),
             nn.BatchNorm2d(32),
+            nn.Dropout2d(dropout),
             # Temporal conv
             nn.Conv2d(32, 32, kernel_size=(4, 1), padding=(2, 0)),
             nn.LeakyReLU(0.01),
             nn.BatchNorm2d(32),
+            nn.Dropout2d(dropout),
             # Another temporal conv
             nn.Conv2d(32, 32, kernel_size=(4, 1), padding=(1, 0)),
             nn.LeakyReLU(0.01),
             nn.BatchNorm2d(32),
+            nn.Dropout2d(dropout),
         )
         
         # Inception Modules: Multi-scale temporal pattern extraction

@@ -12,6 +12,15 @@ class TrainCfg:
     lr: float = 1e-3
     weight_decay: float = 1e-5
     smooth_lambda: float = 0.01
+    direction_lambda: float = 0.1
+    dropout: float = 0.1
+
+    # Scheduled teacher forcing
+    tf_floor: float = 0.1  # minimum teacher forcing ratio
+
+    # Early stopping
+    patience: int = 10
+    min_lr: float = 1e-6
 
     # Windows
     input_window: int = 300   # Look-back

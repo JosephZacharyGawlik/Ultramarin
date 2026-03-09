@@ -15,3 +15,5 @@ __pycache__/
 CLAUDE.md
 .claude/
 .pytest_cache/
+submission/
+things_to_try.md

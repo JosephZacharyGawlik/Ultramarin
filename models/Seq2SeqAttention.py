@@ -22,18 +22,24 @@ class AdditiveAttention(nn.Module):
         return context
 
 class SuperModel(nn.Module):
-    def __init__(self, hidden: int = 128, horizon: int = 60, dropout: float=0.1, ask_bid_idx=(0, 2)):
+    def __init__(self, hidden: int = 128, horizon: int = 60, dropout: float = 0.1,
+                 ask_bid_idx=(0, 2), num_extra_features: int = 0):
         super().__init__()
+        self.num_extra_features = num_extra_features
+
         # 1. Encoder Part
-        self.spatial = DeepLOBEncoder(in_ch=1) # The Heavy CNN [B, T, 192]
+        self.spatial = DeepLOBEncoder(in_ch=1, dropout=dropout)
+        encoder_input_size = 192 + num_extra_features
         self.encoder = nn.LSTM(
-            input_size=192, # DeepLOB output dim
+            input_size=encoder_input_size,
             hidden_size=hidden,
             num_layers=1,
             batch_first=True,
-            bidirectional=True
+            bidirectional=True,
+            dropout=0.0,
         )
-        
+        self.enc_dropout = nn.Dropout(dropout)
+
         # 2. Decoder Part
         self.attn = AdditiveAttention(enc_dim=2 * hidden, dec_dim=hidden)
         self.decoder = nn.LSTM(
@@ -43,6 +49,7 @@ class SuperModel(nn.Module):
             batch_first=True,
             dropout=0.0,
         )
+        self.dec_dropout = nn.Dropout(dropout)
         self.out = nn.Linear(hidden, 1)
         self.init_h = nn.Linear(2 * hidden, hidden)
         self.init_c = nn.Linear(2 * hidden, hidden)
@@ -50,13 +57,23 @@ class SuperModel(nn.Module):
 
         self.ask_idx, self.bid_idx = ask_bid_idx
 
-    def forward(self, x: torch.Tensor, y_teacher: torch.Tensor = None) -> torch.Tensor:
-        # x: [B, T, F]
+    def forward(self, x: torch.Tensor, y_teacher: torch.Tensor = None,
+                tf_ratio: float = 1.0) -> torch.Tensor:
+        # x: [B, T, F] where F = 20 LOB + extra features
         # y_teacher: [B, 60]
-        
+        # tf_ratio: probability of using teacher forcing per step (1.0 = always, 0.0 = never)
+
+        # Split LOB features (for CNN) and extra features (bypass CNN)
+        lob_features = x[:, :, :20]
+        h_spatial = self.spatial(lob_features)  # [B, T, 192]
+
+        if self.num_extra_features > 0:
+            extra_features = x[:, :, 20:]  # [B, T, N_extra]
+            h_spatial = torch.cat([h_spatial, extra_features], dim=-1)  # [B, T, 192+N_extra]
+
         # Encode
-        h_spatial = self.spatial(x)  # [B, T, 192]
         enc_out, _ = self.encoder(h_spatial)  # [B, T, 2H]
+        enc_out = self.enc_dropout(enc_out)
 
         # Init decoder state from encoder mean
         enc_mean = enc_out.mean(dim=1)
@@ -69,19 +86,24 @@ class SuperModel(nn.Module):
         # Seed: use last encoder input midprice proxy (col 0 normalized)
         last_ask = x[:, -1, self.ask_idx]
         last_bid = x[:, -1, self.bid_idx]
-        prev_y = ((last_ask + last_bid) / 2.0).unsqueeze(-1) # [B, 1]
+        prev_y = ((last_ask + last_bid) / 2.0).unsqueeze(-1)  # [B, 1]
 
         for t in range(self.horizon):
             context = self.attn(enc_out, dec_h[-1])  # [B, 2H]
             dec_in = torch.cat([prev_y, context], dim=1).unsqueeze(1)  # [B, 1, 1+2H]
             dec_out, (dec_h, dec_c) = self.decoder(dec_in, (dec_h, dec_c))
+            dec_out = self.dec_dropout(dec_out)
             y_hat = self.out(dec_out).squeeze(1)  # [B, 1]
             outputs.append(y_hat.squeeze(-1))
+
             if self.training and y_teacher is not None:
-                # Teacher forcing
-                prev_y = y_teacher[:, t].unsqueeze(-1)
+                # Scheduled sampling: per-step stochastic teacher forcing
+                if torch.rand(1).item() < tf_ratio:
+                    prev_y = y_teacher[:, t].unsqueeze(-1)
+                else:
+                    prev_y = y_hat.detach()
             else:
-                # Autoregressive
+                # Autoregressive at inference
                 prev_y = y_hat.detach()
 
         return torch.stack(outputs, dim=1)  # [B, 60]

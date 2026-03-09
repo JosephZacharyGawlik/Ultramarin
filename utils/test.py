@@ -2,14 +2,16 @@ import torch
 import pandas as pd
 import polars as pl
 from utils.datastuff import InferenceTensorDataset, LOBProcessor
+from utils.utils import compute_ofi
 from torch.utils.data import DataLoader
 
 def generate_test_loader(cfg, processor):
     # 1. Load Data
     X_test_raw = pd.read_parquet(cfg.x_test_path).sort_values(["anonymized_id", "time_in_hour"])
 
-    # Add mid_price so test data has the same features as training data
+    # Add mid_price and OFI so test data has the same features as training data
     X_test_raw = X_test_raw.assign(mid_price=(X_test_raw["ask_price_1"] + X_test_raw["bid_price_1"]) / 2.0)
+    X_test_raw = compute_ofi(X_test_raw)
 
     # Reuse the fitted processor (computes fresh per-instrument stats for test data)
     test_out = processor.process(pl.from_pandas(X_test_raw), y_df=None)
@@ -53,10 +55,11 @@ def generate_test_predictions(model, cfg, processor, num_ids=None):
     else:
         x_test_polars = x_test_lazy.collect()
 
-    # Add mid_price so test data has the same features as training data
-    x_test_polars = x_test_polars.with_columns(
-        ((pl.col("ask_price_1") + pl.col("bid_price_1")) / 2.0).alias("mid_price")
-    )
+    # Add mid_price and OFI so test data has the same features as training data
+    x_test_pandas = x_test_polars.to_pandas()
+    x_test_pandas["mid_price"] = (x_test_pandas["ask_price_1"] + x_test_pandas["bid_price_1"]) / 2.0
+    x_test_pandas = compute_ofi(x_test_pandas)
+    x_test_polars = pl.from_pandas(x_test_pandas)
 
     # 2. Process with existing LOBProcessor
     print("Preprocessing test data...")

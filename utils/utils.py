@@ -3,6 +3,7 @@ Random Stuff that needs refactoring.
 """
 
 import torch
+import pandas as pd
 import polars as pl
 import numpy as np
 from data.simulate_walk_the_book import simulate_walk_the_book
@@ -31,6 +32,48 @@ BID_PRICE_COLS = ['bid_price_1', 'bid_price_2', 'bid_price_3', 'bid_price_4', 'b
 BID_VOL_COLS = ['bid_vol_1', 'bid_vol_2', 'bid_vol_3', 'bid_vol_4', 'bid_vol_5'] 
 
 DATASETS = ["ADAUSDT", "BTCUSDT", "DOGEUSDT", "ETHUSDT", "LTCUSDT", "SOLUSDT", "XRPUSDT"]
+
+OFI_COLS = ['ofi_1', 'ofi_2', 'ofi_3', 'ofi_4', 'ofi_5', 'ofi_agg']
+
+
+def compute_ofi(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute per-level Order Flow Imbalance (OFI) features per instrument.
+
+    Based on Cont, Kukanov & Stoikov (2014) extended to 5 levels (MLOFI).
+    OFI measures net buying/selling pressure from order book changes.
+    """
+    def _ofi_per_group(group):
+        group = group.sort_values("time_in_hour")
+        for k in range(1, 6):
+            bp = f'bid_price_{k}'
+            bv = f'bid_vol_{k}'
+            ap = f'ask_price_{k}'
+            av = f'ask_vol_{k}'
+
+            bp_diff = group[bp] - group[bp].shift(1)
+            prev_bv = group[bv].shift(1)
+            bid_contrib = np.where(
+                bp_diff > 0, group[bv],
+                np.where(bp_diff == 0, group[bv] - prev_bv, -prev_bv)
+            )
+
+            ap_diff = group[ap] - group[ap].shift(1)
+            prev_av = group[av].shift(1)
+            ask_contrib = np.where(
+                ap_diff < 0, -group[av],
+                np.where(ap_diff == 0, -(group[av] - prev_av), prev_av)
+            )
+
+            group[f'ofi_{k}'] = bid_contrib + ask_contrib
+
+        group['ofi_agg'] = sum(group[f'ofi_{k}'] for k in range(1, 6))
+
+        for col in OFI_COLS:
+            group[col] = group[col].fillna(0.0)
+
+        return group
+
+    return df.groupby("anonymized_id", group_keys=False).apply(_ofi_per_group)
 
 def backfill_first_nans(df: pl.DataFrame, cols: list[str]):
     for col in cols:
