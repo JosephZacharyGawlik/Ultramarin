@@ -249,9 +249,10 @@ def build_schedule_from_forecasts(
     assert mid_pred.shape[0] == 60, "Need 60-second forecast for the last minute."
     p_close = mid_pred[-1]
 
-    price_score = 1.0 / (np.abs(mid_pred - p_close) + cfg.eps)
-    price_cap = cfg.price_cap * price_score.mean()
-    price_score = np.minimum(price_score, price_cap)
+    # Directional: favor seconds where predicted price is below close (cheaper to buy)
+    favorability = p_close - mid_pred
+    temp = np.std(favorability) + cfg.eps
+    price_score = np.exp(np.clip(favorability / temp, -cfg.price_cap, cfg.price_cap))
 
     liq_score = np.ones_like(price_score)
     if liq_pred is not None:
