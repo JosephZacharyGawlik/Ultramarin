@@ -1,3 +1,4 @@
+from hashlib import blake2b
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -58,7 +59,7 @@ def eval_epoch(model, loader, cfg: TrainCfg):
 
 def train_val(cfg: TrainCfg = TrainCfg()):
 
-    assert cfg.target in ["mid", "spread"], "target in config has to be 'mid' or 'spread'."
+    assert cfg.target in ["mid", "mid shift", "spread"], "target in config has to be 'mid' or 'spread'."
 
     # 1. Load Data
     X_raw = pd.read_parquet(cfg.x_path).sort_values(["anonymized_id", "time_in_hour"])
@@ -74,6 +75,41 @@ def train_val(cfg: TrainCfg = TrainCfg()):
         x_val_df   = x_val_df.assign(target=(x_val_df["ask_price_1"]     + x_val_df["bid_price_1"])   / 2.0)
         y_train_df = y_train_df.assign(target=(y_train_df["ask_price_1"] + y_train_df["bid_price_1"]) / 2.0)
         y_val_df   = y_val_df.assign(target=(y_val_df["ask_price_1"]     + y_val_df["bid_price_1"])   / 2.0)
+    
+    elif cfg.target == "mid shift":
+        x_train_df = x_train_df.assign(mid_price=(x_train_df["ask_price_1"] + x_train_df["bid_price_1"]) / 2.0)
+        x_val_df   = x_val_df.assign(mid_price=(x_val_df["ask_price_1"]     + x_val_df["bid_price_1"])   / 2.0)
+        y_train_df = y_train_df.assign(mid_price=(y_train_df["ask_price_1"] + y_train_df["bid_price_1"]) / 2.0)
+        y_val_df   = y_val_df.assign(mid_price=(y_val_df["ask_price_1"]     + y_val_df["bid_price_1"])   / 2.0)
+
+        # get last mid in each X window
+        last_mid_train = (
+            x_train_df
+            .sort_values(["anonymized_id", "time_in_hour"])
+            .groupby("anonymized_id")["mid_price"]
+            .last()
+        )
+
+        last_mid_val = (
+            x_val_df
+            .sort_values(["anonymized_id", "time_in_hour"])
+            .groupby("anonymized_id")["mid_price"]
+            .last()
+        )
+
+        # compute target
+        x_train_df["target"] = x_train_df["mid_price"] - x_train_df["anonymized_id"].map(last_mid_train)
+        x_val_df["target"]   = x_val_df["mid_price"] - x_val_df["anonymized_id"].map(last_mid_val)
+
+        y_train_df["target"] = y_train_df["mid_price"] - y_train_df["anonymized_id"].map(last_mid_train)
+        y_val_df["target"]   = y_val_df["mid_price"] - y_val_df["anonymized_id"].map(last_mid_val)
+
+        # drop mid_price columns
+        x_train_df = x_train_df.drop(columns=["mid_price"], errors="ignore")
+        x_val_df   = x_val_df.drop(columns=["mid_price"], errors="ignore")
+        y_train_df = y_train_df.drop(columns=["mid_price"], errors="ignore")
+        y_val_df   = y_val_df.drop(columns=["mid_price"], errors="ignore")
+
     elif cfg.target == "spread":
         x_train_df = x_train_df.assign(target=(x_train_df["ask_price_1"] - x_train_df["bid_price_1"]))
         x_val_df   = x_val_df.assign(target=(x_val_df["ask_price_1"]     - x_val_df["bid_price_1"]))
@@ -140,6 +176,8 @@ def train_val(cfg: TrainCfg = TrainCfg()):
         "feat_stds": train_stds,           # [1, N_train, F_reordered]
         "val_feat_means": val_means,       # [1, N_val, F_reordered]
         "val_feat_stds": val_stds,         # [1, N_val, F_reordered]
+        "last_mid_train": None if cfg.target != "mid shift" else last_mid_train,
+        "last_mid_val": None if cfg.target != "mid shift" else last_mid_val
     }
     return model, scalers, val_loader, val_id_map, processor
 
