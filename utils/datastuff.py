@@ -1,3 +1,4 @@
+import string
 import torch
 from dataclasses import dataclass
 from torch.utils.data import Dataset
@@ -26,12 +27,13 @@ class TrainCfg:
     y_path: Path = None
     x_test_path: Path = None
     feature_cols: list = None
+    target: string = "mid"
 
 class TensorTimeDataset(Dataset):
-    def __init__(self, X, Y_full, Y_mid, input_window: int):
+    def __init__(self, X, Y_full, Y_target, input_window: int):
         self.X = X
         self.Y = Y_full
-        self.Y_mid = Y_mid
+        self.Y_target = Y_target
         self.input_window = input_window
 
     def __len__(self):
@@ -40,7 +42,7 @@ class TensorTimeDataset(Dataset):
     def __getitem__(self, idx):
         x_sample = self.X[-self.input_window:, idx, :]
         y_full_sample = self.Y[:, idx, :]
-        target = self.Y_mid[idx, :]
+        target = self.Y_target[idx, :]
         return x_sample, y_full_sample, target
 
 class InferenceTensorDataset(TensorTimeDataset):
@@ -87,8 +89,8 @@ class LOBProcessor:
         df = df.sort(["anonymized_id", "time_in_hour"])
 
         price_cols_to_fill = self.price_cols.copy()
-        if "mid_price" in df.columns:
-            price_cols_to_fill.append("mid_price")
+        if "target" in df.columns:
+            price_cols_to_fill.append("target") # TODO calculate target after filling?
 
         # Backfill leading NaNs, then forward fill remaining prices
         from utils.utils import backfill_first_nans

@@ -51,6 +51,8 @@ def eval_epoch(model, loader, cfg: TrainCfg):
 
 def train_val(cfg: TrainCfg = TrainCfg()):
 
+    assert cfg.target in ["mid", "spread"], "target in config has to be 'mid' or 'spread'."
+
     # 1. Load Data
     X_raw = pd.read_parquet(cfg.x_path).sort_values(["anonymized_id", "time_in_hour"])
     Y_raw = pd.read_parquet(cfg.y_path).sort_values(["anonymized_id", "time_in_hour"])
@@ -60,10 +62,16 @@ def train_val(cfg: TrainCfg = TrainCfg()):
 
     # Compute raw mid_price and add to ALL DataFrames before normalization.
     # X and Y must have the same features so normalization broadcasts correctly.
-    x_train_df = x_train_df.assign(mid_price=(x_train_df["ask_price_1"] + x_train_df["bid_price_1"]) / 2.0)
-    x_val_df   = x_val_df.assign(mid_price=(x_val_df["ask_price_1"]     + x_val_df["bid_price_1"])   / 2.0)
-    y_train_df = y_train_df.assign(mid_price=(y_train_df["ask_price_1"] + y_train_df["bid_price_1"]) / 2.0)
-    y_val_df   = y_val_df.assign(mid_price=(y_val_df["ask_price_1"]     + y_val_df["bid_price_1"])   / 2.0)
+    if cfg.target == "mid":
+        x_train_df = x_train_df.assign(target=(x_train_df["ask_price_1"] + x_train_df["bid_price_1"]) / 2.0)
+        x_val_df   = x_val_df.assign(target=(x_val_df["ask_price_1"]     + x_val_df["bid_price_1"])   / 2.0)
+        y_train_df = y_train_df.assign(target=(y_train_df["ask_price_1"] + y_train_df["bid_price_1"]) / 2.0)
+        y_val_df   = y_val_df.assign(target=(y_val_df["ask_price_1"]     + y_val_df["bid_price_1"])   / 2.0)
+    elif cfg.target == "spread":
+        x_train_df = x_train_df.assign(target=(x_train_df["ask_price_1"] - x_train_df["bid_price_1"]))
+        x_val_df   = x_val_df.assign(target=(x_val_df["ask_price_1"]     - x_val_df["bid_price_1"]))
+        y_train_df = y_train_df.assign(target=(y_train_df["ask_price_1"] - y_train_df["bid_price_1"]))
+        y_val_df   = y_val_df.assign(target=(y_val_df["ask_price_1"]     - y_val_df["bid_price_1"]))
 
     # 3. Preprocess with LOBProcessor
     processor = LOBProcessor(cfg, device=cfg.device)
@@ -89,17 +97,17 @@ def train_val(cfg: TrainCfg = TrainCfg()):
     ask_price_idx = feature_index_map["ask_price_1"]
     bid_price_idx = feature_index_map["bid_price_1"]
 
-    # 5. Extract normalized mid_price for training target
-    mid_price_idx  = feature_index_map["mid_price"]
+    # 5. Extract normalized target for training target
+    target_idx  = feature_index_map["target"]
     Y_train_tensor = Y_train_tensor[:, :, feature_indices]
     Y_val_tensor   = Y_val_tensor[:, :, feature_indices]
 
-    mid_train = Y_train_tensor[:, :, mid_price_idx]  # [60, num_ids]
-    mid_val   = Y_val_tensor[:, :, mid_price_idx]    # [60, num_ids]
+    target_train = Y_train_tensor[:, :, target_idx]  # [60, num_ids]
+    target_val   = Y_val_tensor[:, :, target_idx]    # [60, num_ids]
 
     # mid_train shape [60, Num_IDs] -> .T makes [Num_IDs, 60]
-    train_dataset = TensorTimeDataset(X_train_tensor, Y_train_tensor, mid_train.T, input_window=cfg.input_window)
-    val_dataset   = TensorTimeDataset(X_val_tensor, Y_val_tensor, mid_val.T, input_window=cfg.input_window)
+    train_dataset = TensorTimeDataset(X_train_tensor, Y_train_tensor, target_train.T, input_window=cfg.input_window)
+    val_dataset   = TensorTimeDataset(X_val_tensor, Y_val_tensor, target_val.T, input_window=cfg.input_window)
 
     train_loader = DataLoader(train_dataset, batch_size=cfg.batch_size, shuffle=True)
     val_loader   = DataLoader(val_dataset, batch_size=cfg.batch_size, shuffle=False)
