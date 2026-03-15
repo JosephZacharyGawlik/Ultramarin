@@ -13,6 +13,7 @@ class TrainCfg:
     lr: float = 1e-3
     weight_decay: float = 1e-5
     smooth_lambda: float = 0.01
+    loss: string = "mse"
 
     # Windows
     input_window: int = 300   # Look-back

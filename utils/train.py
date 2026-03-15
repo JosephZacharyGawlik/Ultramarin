@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 import numpy as np
 import pandas as pd
 import polars as pl
@@ -27,7 +28,10 @@ def train_epoch(model, loader, optimizer, cfg: TrainCfg):
         optimizer.zero_grad()
 
         pred = model(x_batch, y_teacher=target)
-        loss = forecast_loss(pred, target, cfg.smooth_lambda)
+        if cfg.loss == "mse":
+            loss = forecast_loss(pred, target, cfg.smooth_lambda)
+        elif cfg.loss == "huber":
+            loss = F.huber_loss(pred, target, delta=1.0)
 
         loss.backward()
         optimizer.step()
@@ -44,7 +48,10 @@ def eval_epoch(model, loader, cfg: TrainCfg):
             x_batch, target = x_batch.to(cfg.device), target.to(cfg.device)
             # No teacher forcing during evaluation
             pred = model(x_batch, y_teacher=None)
-            loss = forecast_loss(pred, target, cfg.smooth_lambda)
+            if cfg.loss == "mse":
+                loss = forecast_loss(pred, target, cfg.smooth_lambda)
+            elif cfg.loss == "huber":
+                loss = F.huber_loss(pred, target, delta=1.0)
             total_loss += float(loss.item()) * x_batch.size(0)
             num_samples += x_batch.size(0)
     return total_loss / max(num_samples, 1)
