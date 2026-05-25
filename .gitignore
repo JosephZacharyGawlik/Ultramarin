@@ -1,17 +1,36 @@
-/data/ADAUSDT/
-/data/BTCUSDT/
-/data/BTCUSDT.zip
-/data/DOGEUSDT/
-/data/ETHUSDT/
-/data/LTCUSDT/
-/data/SOLUSDT/
-/data/XRPUSDT/
-/data/__pycache__/
-/data/.idea/
-.venv/
-.DS_Store
-uv.lock
+# Python
 __pycache__/
-CLAUDE.md
-.claude/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
 .pytest_cache/
+
+# Data — never commit per-pair parquet files
+data/*/
+!data/.gitkeep
+
+# Results
+results/*
+!results/README.md
+!results/.gitkeep
+
+# Trained model checkpoints (regenerate by running notebooks)
+*.pt
+*.pth
+*.ckpt
